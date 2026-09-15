@@ -1,0 +1,86 @@
+services:
+  mc:
+    image: itzg/minecraft-server:java25
+    tty: true
+    stdin_open: true
+    ports:
+      - "25565:25565"
+    restart: unless-stopped
+    # GTNH needs longer than Docker's default 10s to save on shutdown
+    stop_grace_period: 2m
+    logging:
+      driver: local
+    environment:
+      EULA: "TRUE"
+      TYPE: GTNH
+      # latest-beta never picks stable releases; switch to latest once 2.9.0 is out
+      GTNH_PACK_VERSION: latest-beta
+      # Enable to delete old config backups
+      # GTNH_DELETE_BACKUPS: true
+      # Use to prevent updates
+      SKIP_GTNH_UPDATE_CHECK: false
+      MEMORY: 10G
+      PAUSE_WHEN_EMPTY_SECONDS: 60
+      DUMP_SERVER_PROPERTIES: "TRUE"
+      CREATE_CONSOLE_IN_PIPE: "true"
+      TZ: Asia/Singapore
+      # Seconds to wait for a clean save before killing Java; must stay under stop_grace_period
+      STOP_DURATION: 110
+      # Fixed so backups/restarter keep working across restarts (set in .env)
+      RCON_PASSWORD: ${RCON_PASSWORD}
+      WHITELIST: |
+        itsenzover
+      OPS: |
+        itsenzover
+    volumes:
+      - ./data:/data
+
+  backups:
+    image: itzg/mc-backup
+    restart: unless-stopped
+    depends_on:
+      - mc
+    environment:
+      TZ: Asia/Singapore
+      RCON_HOST: mc
+      RCON_PASSWORD: ${RCON_PASSWORD}
+      # Wait indefinitely for the server during first install and daily restarts
+      RCON_RETRIES: "-1"
+      RCON_RETRY_INTERVAL: 30s
+      BACKUP_INTERVAL: 6h
+      INITIAL_DELAY: 10m
+      PRUNE_BACKUPS_DAYS: 7
+      PAUSE_IF_NO_PLAYERS: "true"
+      TAR_COMPRESS_METHOD: zstd
+      # backups = ServerUtilities' own in-game backups
+      EXCLUDES: "*.jar,cache,logs,*.tmp,backups"
+    volumes:
+      - ./data:/data:ro
+      - ./backups:/backups
+
+  restarter:
+    # Reuses the backup image for its bash, rcon-cli and mc-monitor
+    image: itzg/mc-backup
+    restart: unless-stopped
+    depends_on:
+      - mc
+    entrypoint: ["bash", "/scripts/daily-restart.sh"]
+    environment:
+      TZ: Asia/Singapore
+      RESTART_TIME: ${RESTART_TIME:-06:00}
+      RCON_HOST: mc
+      RCON_PASSWORD: ${RCON_PASSWORD}
+    volumes:
+      - ./scripts/daily-restart.sh:/scripts/daily-restart.sh:ro
+
+  dozzle:
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DOZZLE_ENABLE_ACTIONS: "true"
+      DOZZLE_ENABLE_SHELL: "true"
+      DOZZLE_NO_ANALYTICS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
