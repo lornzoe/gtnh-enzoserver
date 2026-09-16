@@ -20,7 +20,7 @@ services:
       # Use to prevent updates
       SKIP_GTNH_UPDATE_CHECK: false
       MEMORY: 8G
-      PAUSE_WHEN_EMPTY_SECONDS: 60
+      PAUSE_WHEN_EMPTY_SECONDS: 30
       DUMP_SERVER_PROPERTIES: "TRUE"
       CREATE_CONSOLE_IN_PIPE: "true"
       TZ: Asia/Singapore
