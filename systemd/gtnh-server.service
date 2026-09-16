@@ -1,0 +1,22 @@
+[Unit]
+Description=GTNH Minecraft server (docker compose stack)
+Documentation=https://github.com/lornzoe/gtnh-enzoserver
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=nzoe
+Group=nzoe
+WorkingDirectory=/home/nzoe/gtnh-enzoserver
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose stop
+# First start pulls images and installs the GTNH pack; no start deadline
+TimeoutStartSec=0
+# mc needs up to 110s (STOP_DURATION) for a clean RCON save under its 2m stop_grace_period
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
