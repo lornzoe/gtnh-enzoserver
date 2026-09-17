@@ -10,7 +10,7 @@ Type=oneshot
 RemainAfterExit=yes
 User=nzoe
 Group=nzoe
-WorkingDirectory=/home/nzoe/gtnh-enzoserver
+WorkingDirectory=/home/nzoe/active/gtnh-enzoserver
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose stop
 # First start pulls images and installs the GTNH pack; no start deadline

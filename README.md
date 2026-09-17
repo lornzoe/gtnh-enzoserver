@@ -47,7 +47,7 @@ Enabling by absolute path symlinks this repo's copy into `/etc/systemd/system`, 
 edits here take effect after a `systemctl daemon-reload`:
 
 ```bash
-sudo systemctl enable --now /home/nzoe/gtnh-enzoserver/systemd/gtnh-server.service
+sudo systemctl enable --now /home/nzoe/active/gtnh-enzoserver/systemd/gtnh-server.service
 ```
 
 The unit runs as `nzoe`, so the `docker` group membership from step 1 has to be live
