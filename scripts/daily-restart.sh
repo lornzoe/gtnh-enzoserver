@@ -1,7 +1,8 @@
 #!/bin/bash
-# Stops the Minecraft server over RCON at RESTART_TIME every day.
-# The mc service's restart policy brings it back up.
-# Uses RCON_HOST / RCON_PASSWORD from the environment (read by rcon-cli).
+# Backs up and then stops the Minecraft server over RCON at RESTART_TIME every day.
+# The mc service's restart policy brings it back up (installing any GTNH update).
+# Uses RCON_HOST / RCON_PASSWORD from the environment (read by rcon-cli), and the
+# mc-backup settings shared with the backups service.
 
 set -uo pipefail
 
@@ -15,6 +16,19 @@ players_online() {
   local count
   count=$(mc-monitor status --host "$RCON_HOST" --show-player-count 2>/dev/null)
   [[ $count =~ ^[0-9]+$ ]] && echo "$count" || echo 0
+}
+
+# Runs a one-off backup; succeeds only if a new archive actually appeared, since
+# `backup now` exits 0 even when the backup fails.
+backup_before_restart() {
+  local marker
+  marker=$(mktemp)
+  backup now
+  local status=$?
+  local new
+  new=$(find /backups -maxdepth 1 -name '*.tar*' -newer "$marker" | head -1)
+  rm -f "$marker"
+  (( status == 0 )) && [[ -n $new ]]
 }
 
 next_restart() {
@@ -48,6 +62,15 @@ while true; do
     done
   else
     sleep "$WARN_SECONDS"
+  fi
+
+  log "Backing up before restart"
+  say "Backing up before restart..."
+  if ! backup_before_restart; then
+    log "Backup failed, skipping today's restart so an update can't run without a backup"
+    say "Pre-restart backup failed, restart skipped"
+    sleep 60
+    continue
   fi
 
   log "Stopping server"

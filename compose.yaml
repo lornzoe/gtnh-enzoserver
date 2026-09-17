@@ -1,10 +1,34 @@
+# Shared by the backups loop and the restarter's pre-restart backup
+x-backup-settings: &backup-settings
+  TZ: Asia/Singapore
+  RCON_HOST: mc
+  PRUNE_BACKUPS_DAYS: 7
+  TAR_COMPRESS_METHOD: zstd
+  # backups = ServerUtilities' own in-game backups; dynmap tiles are re-rendered by the web map
+  EXCLUDES: "*.jar,cache,logs,*.tmp,backups,dynmap/web/tiles"
+
 services:
+  init-env:
+    # Creates .env with a random RCON password on first start
+    image: itzg/mc-backup
+    restart: "no"
+    entrypoint: ["bash", "/stack/scripts/init-env.sh"]
+    volumes:
+      - ./:/stack
+
   mc:
     image: itzg/minecraft-server:java25
+    depends_on:
+      init-env:
+        condition: service_completed_successfully
+    # Loads .env, then wraps the image's start script to reapply config tweaks after GTNH updates
+    entrypoint: ["bash", "/scripts/with-env.sh", "bash", "/scripts/mc-entrypoint.sh"]
     tty: true
     stdin_open: true
     ports:
       - "25565:25565"
+      # GTNH-Web-Map; no login, so keep it on trusted networks
+      - "8123:8123"
     restart: unless-stopped
     # GTNH needs longer than Docker's default 10s to save on shutdown
     stop_grace_period: 2m
@@ -15,63 +39,75 @@ services:
       TYPE: GTNH
       # latest-beta never picks stable releases; switch to latest once 2.9.0 is out
       GTNH_PACK_VERSION: latest-beta
-      # Enable to delete old config backups
-      # GTNH_DELETE_BACKUPS: true
+      # Keep the config snapshots (data/gtnh-upgrade-*) made before each update
+      GTNH_DELETE_BACKUPS: false
       # Use to prevent updates
       SKIP_GTNH_UPDATE_CHECK: false
       MEMORY: 8G
-      PAUSE_WHEN_EMPTY_SECONDS: 30
+      # Only used when a new World/ is generated
+      SEED: "7778482884765675078"
+      # Re-downloaded after GTNH updates wipe mods/
+      MODS: |
+        https://github.com/GTNewHorizons/spark/releases/download/v0.0.16/spark-forge1710-1.10-SNAPSHOT.jar
+        https://github.com/GTNewHorizons/GTNH-Web-Map/releases/download/0.4-beta-1/gtnh-web-map-0.4-beta-1.jar
+      RCON_CMDS_STARTUP: |-
+        gamerule keepInventory true
+        gamerule doFireTick false
       DUMP_SERVER_PROPERTIES: "TRUE"
       CREATE_CONSOLE_IN_PIPE: "true"
       TZ: Asia/Singapore
       # Seconds to wait for a clean save before killing Java; must stay under stop_grace_period
       STOP_DURATION: 110
-      # Fixed so backups/restarter keep working across restarts (set in .env)
-      RCON_PASSWORD: ${RCON_PASSWORD}
       WHITELIST: |
         itsenzover
       OPS: |
         itsenzover
     volumes:
       - ./data:/data
+      - ./scripts/mc-entrypoint.sh:/scripts/mc-entrypoint.sh:ro
+      # RCON_PASSWORD, fixed so backups/restarter keep working across restarts
+      - ./.env:/stack.env:ro
+      - ./scripts/with-env.sh:/scripts/with-env.sh:ro
+      - ./scripts/apply-config.sh:/scripts/apply-config.sh:ro
 
   backups:
     image: itzg/mc-backup
     restart: unless-stopped
     depends_on:
       - mc
+    entrypoint: ["bash", "/scripts/with-env.sh", "/usr/bin/backup", "loop"]
     environment:
-      TZ: Asia/Singapore
-      RCON_HOST: mc
-      RCON_PASSWORD: ${RCON_PASSWORD}
+      <<: *backup-settings
       # Wait indefinitely for the server during first install and daily restarts
       RCON_RETRIES: "-1"
       RCON_RETRY_INTERVAL: 30s
       BACKUP_INTERVAL: 6h
       INITIAL_DELAY: 10m
-      PRUNE_BACKUPS_DAYS: 7
-      PAUSE_IF_NO_PLAYERS: "true"
-      TAR_COMPRESS_METHOD: zstd
-      # backups = ServerUtilities' own in-game backups
-      EXCLUDES: "*.jar,cache,logs,*.tmp,backups"
     volumes:
       - ./data:/data:ro
       - ./backups:/backups
+      - ./.env:/stack.env:ro
+      - ./scripts/with-env.sh:/scripts/with-env.sh:ro
 
   restarter:
-    # Reuses the backup image for its bash, rcon-cli and mc-monitor
+    # Reuses the backup image for its bash, rcon-cli, mc-monitor and pre-restart backup
     image: itzg/mc-backup
     restart: unless-stopped
     depends_on:
       - mc
-    entrypoint: ["bash", "/scripts/daily-restart.sh"]
+    entrypoint: ["bash", "/scripts/with-env.sh", "bash", "/scripts/daily-restart.sh"]
     environment:
-      TZ: Asia/Singapore
+      <<: *backup-settings
       RESTART_TIME: ${RESTART_TIME:-06:00}
-      RCON_HOST: mc
-      RCON_PASSWORD: ${RCON_PASSWORD}
+      # Give up quickly so a dead server still gets restarted
+      RCON_RETRIES: 5
+      RCON_RETRY_INTERVAL: 10s
     volumes:
       - ./scripts/daily-restart.sh:/scripts/daily-restart.sh:ro
+      - ./data:/data:ro
+      - ./backups:/backups
+      - ./.env:/stack.env:ro
+      - ./scripts/with-env.sh:/scripts/with-env.sh:ro
 
   dozzle:
     image: amir20/dozzle:latest
